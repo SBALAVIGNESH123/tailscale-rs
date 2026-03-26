@@ -230,26 +230,6 @@ impl HandshakeState {
         !matches!(self, HandshakeState::None)
     }
 
-    fn take_initiated(&mut self) -> Option<SentHandshake> {
-        match std::mem::replace(self, HandshakeState::None) {
-            HandshakeState::Initiated(handshake) => Some(handshake),
-            other => {
-                *self = other;
-                None
-            }
-        }
-    }
-
-    fn take_responded(&mut self) -> Option<Box<SessionPair>> {
-        match std::mem::replace(self, HandshakeState::None) {
-            HandshakeState::Responded(handshake) => Some(handshake),
-            other => {
-                *self = other;
-                None
-            }
-        }
-    }
-
     /// Abandon an in-progress handshake, if any.
     fn abandon(&mut self, ids: &mut IdMap) {
         match std::mem::replace(self, HandshakeState::None) {
@@ -312,17 +292,15 @@ impl HandshakeState {
         cookies: &MACReceiver,
         now: Instant,
     ) -> Option<SessionPair> {
-        let mut handshake = self.take_initiated()?;
-        match handshake.handshake.finish(packet, psk, cookies, now) {
-            Ok(new_session) => {
-                handshake.timeout.cancel();
-                Some(new_session)
-            }
-            Err(sent) => {
-                handshake.handshake = sent;
-                *self = HandshakeState::Initiated(handshake);
-                None
-            }
+        if let HandshakeState::Initiated(handshake) = self
+            && let Some(session) = handshake.finish(packet, psk, cookies, now)
+        {
+            // TODO added in recent commit
+            handshake.timeout.cancel();
+            *self = HandshakeState::None;
+            Some(session)
+        } else {
+            None
         }
     }
 
@@ -340,18 +318,21 @@ impl HandshakeState {
         session_id: SessionId,
         mut packets: Vec<PacketMut>,
     ) -> Option<(SessionPair, Vec<PacketMut>)> {
-        let tentative = self.take_responded()?;
-        if tentative.recv.id() != session_id {
-            *self = HandshakeState::Responded(tentative);
-            return None;
-        }
-        packets = tentative.recv.decrypt(packets);
-        if packets.is_empty() {
-            *self = HandshakeState::Responded(tentative);
-            return None;
-        }
+        if let HandshakeState::Responded(tentative) = self
+            && tentative.recv.id() == session_id
+        {
+            packets = tentative.recv.decrypt(packets);
+            if !packets.is_empty() {
+                let HandshakeState::Responded(tentative) =
+                    std::mem::replace(self, HandshakeState::None)
+                else {
+                    unreachable!();
+                };
 
-        Some((*tentative, packets))
+                return Some((*tentative, packets));
+            }
+        }
+        None
     }
 }
 
@@ -551,14 +532,11 @@ impl Peer {
     }
 
     fn recv_cookie_reply(&mut self, packet: &CookieReply) {
-        let Some(mut handshake) = self.handshake.take_initiated() else {
+        let HandshakeState::Initiated(handshake) = &mut self.handshake else {
             tracing::trace!("dropping cookie reply received outside of handshake");
             return;
         };
-        handshake
-            .handshake
-            .cookie_reply(&mut self.cookie_sender, packet);
-        self.handshake = HandshakeState::Initiated(handshake);
+        handshake.handshake.cookie_reply(&mut self.cookie_sender, packet);
     }
 
     fn recv_handshake_response(

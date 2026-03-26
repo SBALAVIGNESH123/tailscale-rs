@@ -305,6 +305,7 @@ pub struct SentHandshake {
     my_static: NodePrivateKey,
     handshake: Handshake,
     handshake_mac1: Mac,
+    done: bool,
 }
 
 pub struct SessionPair {
@@ -350,6 +351,7 @@ impl SentHandshake {
             id: session_id,
             my_ephemeral: ephemeral,
             my_static: *my_static,
+            done: false,
             handshake,
             handshake_mac1,
         };
@@ -359,19 +361,22 @@ impl SentHandshake {
 
     /// Process a received cookie reply message.
     pub fn cookie_reply(&mut self, macs: &mut MACSender, cookie: &CookieReply) {
+        assert!(!self.done);
         macs.receive_cookie(cookie, &self.handshake_mac1);
     }
 
     /// Finalize the handshake.
     pub fn finish(
-        self,
+        &mut self,
         pkt: &HandshakeResponse,
         psk: &Psk,
         macs: &MACReceiver,
         now: Instant,
-    ) -> Result<SessionPair, Box<SentHandshake>> {
+    ) -> Option<SessionPair> {
+        assert!(!self.done);
+
         if !macs.verify_macs(pkt.as_bytes()) {
-            return Err(Box::new(self));
+            return None;
         };
 
         let peer_ephemeral = x25519_dalek::PublicKey::from(pkt.ephemeral_pub);
@@ -388,17 +393,12 @@ impl SentHandshake {
             ) // se
             .mix_psk(psk) // psk
             .decrypt(&pkt.auth_tag, &mut empty) // payload (empty, but must decrypt to verify auth tag)
-            .map(|handshake| handshake.finish());
+            .map(|handshake| handshake.finish())?;
 
-        match session_keys {
-            None => Err(Box::new(self)),
-            Some(session_keys) => {
-                let send =
-                    TransmitSession::new(session_keys.initiator_to_responder, pkt.sender_id, now);
-                let recv = ReceiveSession::new(session_keys.responder_to_initiator, self.id, now);
-                Ok(SessionPair { send, recv })
-            }
-        }
+        self.done = true;
+        let send = TransmitSession::new(session_keys.initiator_to_responder, pkt.sender_id, now);
+        let recv = ReceiveSession::new(session_keys.responder_to_initiator, self.id, now);
+        Some(SessionPair { send, recv })
     }
 }
 
@@ -419,7 +419,7 @@ mod tests {
         let a_mac_recv = MACReceiver::new(&a_static.public);
         let a_session = SessionId::random(); // A wants to receive at this ID
         let a_init_time = TAI64N::now();
-        let (a_handshake, init_pkt) = SentHandshake::new(
+        let (mut a_handshake, init_pkt) = SentHandshake::new(
             &a_static.private,
             &b_static.public,
             a_session,
@@ -443,7 +443,7 @@ mod tests {
         // Peer A receives response
         let response_pkt = HandshakeResponse::try_ref_from_bytes(response_pkt.as_ref())
             .expect("response_pkt is a valid handshake response message");
-        let Ok(a_session) = a_handshake.finish(response_pkt, &psk, &a_mac_recv, Instant::now())
+        let Some(a_session) = a_handshake.finish(response_pkt, &psk, &a_mac_recv, Instant::now())
         else {
             panic!("failed to process handshake response from peer B");
         };
