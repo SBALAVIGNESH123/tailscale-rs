@@ -12,9 +12,8 @@ use ts_packet::old::PacketMut;
 use ts_time::{Handle, Scheduler, TimeRange};
 
 use crate::{
-    Psk,
     config::{PeerConfig, PeerId},
-    handshake::{ReceivedHandshake, SessionPair},
+    handshake::{HandshakeState, ReceivedHandshake, SessionPair},
     macs::{MACReceiver, MACSender},
     messages::{CookieReply, HandshakeResponse, Message, SessionId},
     session::{ReceiveSession, TransmitSession},
@@ -209,133 +208,6 @@ impl SessionState {
     }
 }
 
-struct SentHandshake {
-    handshake: Box<crate::handshake::SentHandshake>,
-    timeout: Handle<Event>,
-}
-
-/// State of a handshake with a peer.
-enum HandshakeState {
-    /// No handshake in progress.
-    None,
-    /// We are the initiator, awaiting a response.
-    Initiated(SentHandshake),
-    /// We are the responder, awaiting an initial transport
-    /// message to confirm the new session.
-    Responded(Box<SessionPair>),
-}
-
-impl HandshakeState {
-    fn is_active(&self) -> bool {
-        !matches!(self, HandshakeState::None)
-    }
-
-    /// Abandon an in-progress handshake, if any.
-    fn abandon(&mut self, ids: &mut IdMap) {
-        match std::mem::replace(self, HandshakeState::None) {
-            HandshakeState::Initiated(handshake) => {
-                ids.remove_session(handshake.handshake.id);
-                handshake.timeout.cancel();
-            }
-            HandshakeState::Responded(tentative) => ids.remove_session(tentative.recv.id()),
-            HandshakeState::None => {}
-        }
-    }
-
-    /// Record an initiated handshake.
-    ///
-    /// Initiation replaces any other handshake state unconditionally.
-    fn initiate(&mut self, handshake: SentHandshake, ids: &mut IdMap) {
-        self.abandon(ids);
-        *self = HandshakeState::Initiated(handshake);
-    }
-
-    /// Respond to a peer's handshake initiation, and switch to the responder state to await
-    /// session confirmation.
-    ///
-    /// Responding replaces any other handshake state unconditionally.
-    fn respond(
-        &mut self,
-        session_id: SessionId,
-        handshake: ReceivedHandshake,
-        psk: &Psk,
-        cookie_sender: &MACSender,
-        now: Instant,
-    ) -> PacketMut {
-        // TODO: tie-breaker for simultaneous initiation.
-        // When both peers initiate simultaneously, it's possible to get into a sticky situation
-        // where each peer completes their own initiation based on the other's response, and in
-        // so doing end up on completely different session keys that will never be confirmed.
-        // We need to resolve the conflict one way or another to avoid this race.
-        //
-        // However, in practice the race is vanishingly rare unless you somehow externally
-        // synchronize the peers to start handshaking at exactly the same time. So, the code is
-        // usable without this race avoidance logic.
-        //
-        // We may also be able to resolve this race with a 4th handshake state wherein we are
-        // simultaneously initiator and responder, and temporarily exist in quantum superposition
-        // until confirmation packets collapse the state again.
-        let (session, packet) = handshake.respond(session_id, psk, cookie_sender, now);
-        *self = HandshakeState::Responded(Box::new(session));
-        packet
-    }
-
-    /// Finish a handshake as the initiator, returning the newly established sessions.
-    ///
-    /// The handshake state is unchanged if the handshake cannot complete, either because
-    /// it's not in an appropriate state or because the handshake response isn't a valid
-    /// completion of the handshake.
-    fn finish(
-        &mut self,
-        packet: &HandshakeResponse,
-        psk: &Psk,
-        cookies: &MACReceiver,
-        now: Instant,
-    ) -> Option<SessionPair> {
-        if let HandshakeState::Initiated(handshake) = self
-            && let Some(session) = handshake.finish(packet, psk, cookies, now)
-        {
-            // TODO added in recent commit
-            handshake.timeout.cancel();
-            *self = HandshakeState::None;
-            Some(session)
-        } else {
-            None
-        }
-    }
-
-    /// Confirm a handshake as responder, using the provided ciphertext packets.
-    ///
-    /// A tentative session becomes confirmed when it successfully decrypts its first packet.
-    ///
-    /// The handshake state is unchanged if the handshake cannot be confirmed, either because it's
-    /// not in an appropriate state or because no packet successfully decrypted.
-    ///
-    /// Upon successful confirmation, returns the newly established sessions as well as the one
-    /// or more packets that decrypted successfully
-    fn confirm(
-        &mut self,
-        session_id: SessionId,
-        mut packets: Vec<PacketMut>,
-    ) -> Option<(SessionPair, Vec<PacketMut>)> {
-        if let HandshakeState::Responded(tentative) = self
-            && tentative.recv.id() == session_id
-        {
-            packets = tentative.recv.decrypt(packets);
-            if !packets.is_empty() {
-                let HandshakeState::Responded(tentative) =
-                    std::mem::replace(self, HandshakeState::None)
-                else {
-                    unreachable!();
-                };
-
-                return Some((*tentative, packets));
-            }
-        }
-        None
-    }
-}
-
 /// Tracks and allocates session IDs for peer sessions.
 #[derive(Default)]
 struct IdMap {
@@ -390,6 +262,12 @@ impl IdMap {
         self.sessions
             .remove(&id)
             .expect("IDMap::delete should only be called for allocated IDs");
+    }
+
+    fn remove_handshake_session(&mut self, handshake: &HandshakeState) {
+        if let Some(id) = handshake.id() {
+            self.remove_session(id);
+        }
     }
 
     /// Delete the peer handle for the given key.
@@ -479,12 +357,10 @@ impl Peer {
             Instant::now() + HANDSHAKE_TIMEOUT,
             Duration::from_millis(500),
         );
+
         let timeout = scheduler.add(tr, Event::HandshakeTimeout(self.id));
-        let handshake = SentHandshake {
-            handshake: Box::new(handshake),
-            timeout,
-        };
-        self.handshake.initiate(handshake, ids);
+        // TODO added timeout
+        self.handshake = HandshakeState::initiate(handshake, timeout);
     }
 
     #[tracing::instrument(skip_all, fields(?session_id, n_packets = packets.len()))]
@@ -532,11 +408,11 @@ impl Peer {
     }
 
     fn recv_cookie_reply(&mut self, packet: &CookieReply) {
-        let HandshakeState::Initiated(handshake) = &mut self.handshake else {
+        let HandshakeState::Initiated(handshake, _) = &mut self.handshake else {
             tracing::trace!("dropping cookie reply received outside of handshake");
             return;
         };
-        handshake.handshake.cookie_reply(&mut self.cookie_sender, packet);
+        handshake.cookie_reply(&mut self.cookie_sender, packet);
     }
 
     fn recv_handshake_response(
@@ -641,7 +517,9 @@ impl Peer {
             return;
         }
 
-        self.handshake.abandon(ids);
+        ids.remove_handshake_session(&self.handshake);
+        self.handshake = HandshakeState::None;
+
         let session_id = ids.allocate_session(self.id);
         let (handshake, packet) = crate::handshake::SentHandshake::new(
             my_key,
@@ -656,12 +534,10 @@ impl Peer {
             Instant::now() + HANDSHAKE_TIMEOUT,
             Duration::from_millis(500),
         );
+
         let timeout = scheduler.add(tr, Event::HandshakeTimeout(self.id));
-        let handshake = SentHandshake {
-            handshake: Box::new(handshake),
-            timeout,
-        };
-        self.handshake.initiate(handshake, ids);
+        // TODO added timeout
+        self.handshake = HandshakeState::initiate(handshake, timeout);
     }
 
     fn send_keepalive(&mut self, scheduler: &mut Scheduler<Event>, out: &mut EventResult) {
@@ -681,7 +557,9 @@ impl Peer {
 
     fn shutdown(&mut self, ids: &mut IdMap) {
         self.session.deactivate(ids);
-        self.handshake.abandon(ids);
+
+        ids.remove_handshake_session(&self.handshake);
+        self.handshake = HandshakeState::None;
     }
 }
 
