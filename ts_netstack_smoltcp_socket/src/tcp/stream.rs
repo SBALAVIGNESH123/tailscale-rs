@@ -155,6 +155,10 @@ impl TcpStream {
     }
 
     fn _recv_bytes(&self, resp: Response) -> Result<Bytes, netcore::Error> {
+        if matches!(resp, Response::TcpStream(tcp::stream::Response::Finished)) {
+            return Ok(Bytes::new());
+        }
+
         netcore::try_response_as!(resp, tcp::stream::Response::Recv { buf });
         Ok(buf)
     }
