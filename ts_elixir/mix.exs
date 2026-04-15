@@ -32,7 +32,8 @@ defmodule TsElixir.MixProject do
 
       # dev
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
-      {:ex_doc, "~> 0.27", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.27", only: :dev, runtime: false},
+      {:credo, "~>1.7", only: [:dev, :test], runtime: false},
     ]
   end
 
