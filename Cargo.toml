@@ -110,7 +110,7 @@ ts_bart = { path = "ts_bart", version = "0.2.0" }
 ts_bart_packetfilter = { path = "ts_bart_packetfilter", version = "0.2.0" }
 ts_bitset = { path = "ts_bitset", default-features = false, version = "0.2.0" }
 ts_capabilityversion = { path = "ts_capabilityversion", version = "0.2.0" }
-ts_cli_util = { path = "ts_cli_util", version = "0.2.0" }
+ts_cli_util = { path = "ts_cli_util" }
 ts_control = { path = "ts_control", version = "0.2.0" }
 ts_control_noise = { path = "ts_control_noise", version = "0.2.0" }
 ts_control_serde = { path = "ts_control_serde", version = "0.2.0" }
