@@ -40,6 +40,11 @@ fn tcp_listen(
     erl_result(env, sock)
 }
 
+#[rustler::nif]
+fn tcp_listen_local_addr(env: rustler::Env, listener: ResourceArc<TcpListener>) -> impl Encoder {
+    crate::sockaddr_to_erl(env, listener.inner.local_addr())
+}
+
 #[rustler::nif(schedule = "DirtyIo")]
 fn tcp_connect(
     env: rustler::Env<'_>,
@@ -97,4 +102,14 @@ fn tcp_recv(env: rustler::Env, sock: ResourceArc<TcpStream>) -> impl Encoder {
     });
 
     erl_result(env, buf)
+}
+
+#[rustler::nif]
+fn tcp_local_addr(env: rustler::Env, sock: ResourceArc<TcpStream>) -> impl Encoder {
+    crate::sockaddr_to_erl(env, sock.inner.local_addr())
+}
+
+#[rustler::nif]
+fn tcp_remote_addr(env: rustler::Env, sock: ResourceArc<TcpStream>) -> impl Encoder {
+    crate::sockaddr_to_erl(env, sock.inner.remote_addr())
 }

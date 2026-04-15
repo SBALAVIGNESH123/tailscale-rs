@@ -22,7 +22,7 @@ defmodule Tailscale do
     
   `tailscale` is capable of interpreting either the `inet` format or a `String`.
   """
-  @type ip() :: ip4() | ip6()
+  @type ip_addr() :: ip4_addr() | ip6_addr()
   
   @typedoc """
   Handle to a tailscale "device", i.e. a unique tailnet-connected identity with a network address.

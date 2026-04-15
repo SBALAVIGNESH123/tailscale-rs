@@ -47,4 +47,12 @@ defmodule Tailscale.Udp do
   def recv(sock) do
     Tailscale.Native.udp_recv(sock)
   end
+
+  @doc """
+  Get the local address on which this UDP socket is bound.
+  """
+  @spec local_addr(t()) :: {:inet.ip_address(), :inet.port_number()}
+  def local_addr(sock) do
+    Tailscale.Native.udp_local_addr(sock)
+  end
 end

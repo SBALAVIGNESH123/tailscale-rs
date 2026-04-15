@@ -72,7 +72,13 @@ defmodule Tailscale.Native do
   """
   @spec udp_recv(udp_socket()) :: {:ok, :inet.ip_address(), :inet.port_number(), binary()} | {:error, any()}
   def udp_recv(_sock), do: err()
-  
+
+  @doc """
+  Get the local address to which the given UDP socket is bound.
+  """
+  @spec udp_local_addr(udp_socket()) :: {:inet.ip_address(), :inet.port_number()}
+  def udp_local_addr(_sock), do: err()
+
   @doc """
   Start the Rust-side tracing machinery. This prints to stdout, so may conflict with erlang's
   logging setup.
@@ -85,7 +91,13 @@ defmodule Tailscale.Native do
   """
   @spec tcp_listen(device(), Tailscale.ip() | :ip4 | :ip6, :inet.port_number()) :: {:ok, tcp_listener()} | {:error, any()}
   def tcp_listen(_dev, _addr, _port), do: err()
-  
+
+  @doc """
+  Get the local address to which the given TCP listener is bound.
+  """
+  @spec tcp_listen_local_addr(tcp_listener()) :: {:inet.ip_address(), :inet.port_number()}
+  def tcp_listen_local_addr(_listener), do: err()
+
   @doc """
   Connect to the given TCP endpoint using the given device.
   """
@@ -112,6 +124,18 @@ defmodule Tailscale.Native do
   """
   @spec tcp_recv(tcp_stream()) :: {:ok, binary()} | {:error, any()}
   def tcp_recv(_stream), do: err()
+
+  @doc """
+  Get the local address to which the given TCP stream is bound.
+  """
+  @spec tcp_local_addr(tcp_stream()) :: {:inet.ip_address(), :inet.port_number()}
+  def tcp_local_addr(_stream), do: err()
+
+  @doc """
+  Get the remote address to which the given TCP stream is connected.
+  """
+  @spec tcp_remote_addr(tcp_stream()) :: {:inet.ip_address(), :inet.port_number()}
+  def tcp_remote_addr(_stream), do: err()
 
   @doc """
   Retrieve the IPv4 address for the given tailscale device.

@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use std::{
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     str::FromStr,
     sync::{Arc, LazyLock},
 };
@@ -180,6 +180,10 @@ fn ip_from_erl(ip: Term) -> Option<IpAddr> {
     }
 
     None
+}
+
+fn sockaddr_to_erl(env: rustler::Env, addr: SocketAddr) -> impl Encoder {
+    (ip_to_erl(env, addr.ip()), addr.port())
 }
 
 fn load(env: rustler::Env, _term: Term) -> bool {

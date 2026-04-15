@@ -13,4 +13,12 @@ defmodule Tailscale.Tcp.Listener do
   def accept(res) do
     Tailscale.Native.tcp_accept(res)
   end
+
+  @doc """
+  Get the local address on which this listener is bound.
+  """
+  @spec local_addr(t()) :: {:inet.ip_address(), :inet.port_number()}
+  def local_addr(listener) do
+    Tailscale.Native.tcp_listen_local_addr(listener)
+  end
 end

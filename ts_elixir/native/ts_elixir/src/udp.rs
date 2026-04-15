@@ -69,3 +69,8 @@ fn udp_recv(env: rustler::Env, sock: ResourceArc<UdpSocket>) -> Term {
     )
         .encode(env)
 }
+
+#[rustler::nif]
+fn udp_local_addr(env: rustler::Env, sock: ResourceArc<UdpSocket>) -> impl Encoder {
+    crate::sockaddr_to_erl(env, sock.inner.local_addr())
+}

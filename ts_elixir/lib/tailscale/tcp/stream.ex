@@ -35,4 +35,20 @@ defmodule Tailscale.Tcp.Stream do
   def recv(res) do
     Tailscale.Native.tcp_recv(res)
   end
+
+  @spec local_addr(t()) :: {:inet.ip_address(), :inet.port_number()}
+  @doc """
+  Get the local address on which this TCP stream is bound.
+  """
+  def local_addr(stream) do
+    Tailscale.Native.tcp_local_addr(stream)
+  end
+
+  @spec remote_addr(t()) :: {:inet.ip_address(), :inet.port_number()}
+  @doc """
+  Get the remote address to which this TCP stream is connected.
+  """
+  def remote_addr(stream) do
+    Tailscale.Native.tcp_remote_addr(stream)
+  end
 end
