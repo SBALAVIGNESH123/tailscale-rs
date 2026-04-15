@@ -9,7 +9,7 @@
 //! if things diverge.
 
 use std::{
-    ffi::{CStr, c_char},
+    ffi::{self, CStr, c_char},
     fmt::{Debug, Formatter},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
 };
@@ -300,7 +300,7 @@ impl From<sockaddr_in6> for SocketAddrV6 {
 /// `s` must be able to be read according to [`CStr`] rules, i.e.
 /// it must be NUL-terminated and valid for reading up to and including the NUL.
 #[unsafe(no_mangle)]
-pub extern "C" fn ts_parse_sockaddr(s: *const c_char, addr: &mut sockaddr) -> isize {
+pub extern "C" fn ts_parse_sockaddr(s: *const c_char, addr: &mut sockaddr) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let Ok(s) = (unsafe { CStr::from_ptr(s) }).to_str() else {
         tracing::error!("bad utf8");
@@ -331,7 +331,7 @@ pub extern "C" fn ts_parse_sockaddr(s: *const c_char, addr: &mut sockaddr) -> is
 /// `s` must be able to be read according to [`CStr`] rules, i.e.
 /// it must be NUL-terminated and valid for reading up to and including the NUL.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ts_parse_ip(s: *const c_char, addr: &mut sockaddr) -> isize {
+pub unsafe extern "C" fn ts_parse_ip(s: *const c_char, addr: &mut sockaddr) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let Ok(s) = (unsafe { CStr::from_ptr(s) }).to_str() else {
         tracing::error!("bad utf8");
@@ -355,7 +355,7 @@ pub unsafe extern "C" fn ts_parse_ip(s: *const c_char, addr: &mut sockaddr) -> i
 ///
 /// Returns a negative number if `sa_family` is invalid.
 #[unsafe(no_mangle)]
-pub extern "C" fn ts_sockaddr_set_port(addr: &mut sockaddr, port: u16) -> isize {
+pub extern "C" fn ts_sockaddr_set_port(addr: &mut sockaddr, port: u16) -> ffi::c_int {
     match addr.sa_family {
         AF_INET => {
             unsafe { addr.sa_data.sockaddr_in }.sin_port = port;

@@ -1,3 +1,5 @@
+use std::ffi;
+
 use crate::TOKIO_RUNTIME;
 
 /// A Tailscale TCP listener handle.
@@ -78,7 +80,11 @@ pub extern "C" fn ts_tcp_connect(
 /// `buf` must be safe to convert into a Rust slice of length `len` (see
 /// [`core::slice::from_raw_parts`]).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ts_tcp_send(stream: &tcp_stream, buf: *const u8, len: usize) -> isize {
+pub unsafe extern "C" fn ts_tcp_send(
+    stream: &tcp_stream,
+    buf: *const u8,
+    len: usize,
+) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let b = unsafe { core::slice::from_raw_parts(buf, len) };
 
@@ -101,7 +107,7 @@ pub unsafe extern "C" fn ts_tcp_send(stream: &tcp_stream, buf: *const u8, len: u
 /// `buf` must be safe to convert into a mutable Rust slice of length `len` (see
 /// [`core::slice::from_raw_parts_mut`]).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ts_tcp_recv(stream: &tcp_stream, buf: *mut u8, len: usize) -> isize {
+pub unsafe extern "C" fn ts_tcp_recv(stream: &tcp_stream, buf: *mut u8, len: usize) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let b = unsafe { core::slice::from_raw_parts_mut(buf, len) };
 
@@ -110,7 +116,7 @@ pub unsafe extern "C" fn ts_tcp_recv(stream: &tcp_stream, buf: *mut u8, len: usi
             tracing::error!(err = %e, "tcp accept");
             -1
         }
-        Ok(read) => read as isize,
+        Ok(read) => read as _,
     }
 }
 

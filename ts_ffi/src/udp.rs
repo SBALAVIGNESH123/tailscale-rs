@@ -1,3 +1,5 @@
+use std::ffi;
+
 use crate::TOKIO_RUNTIME;
 
 /// A Tailscale UDP socket handle.
@@ -42,7 +44,7 @@ pub unsafe extern "C" fn ts_udp_sendto(
     addr: &crate::sockaddr,
     msg: *const u8,
     len: usize,
-) -> isize {
+) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let msg = unsafe { core::slice::from_raw_parts(msg, len) };
 
@@ -75,7 +77,7 @@ pub unsafe extern "C" fn ts_udp_recvfrom(
     addr: Option<&mut crate::sockaddr>,
     buf: *mut u8,
     len: usize,
-) -> isize {
+) -> ffi::c_int {
     // SAFETY: ensured by function precondition
     let buf = unsafe { core::slice::from_raw_parts_mut(buf, len) };
 
