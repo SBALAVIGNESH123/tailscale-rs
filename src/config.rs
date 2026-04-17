@@ -4,6 +4,10 @@ use std::path::Path;
 
 use crate::keys::NodeState;
 
+const CONTROL_URL_VAR: &str = "TS_CONTROL_URL";
+const HOSTNAME_VAR: &str = "TS_HOSTNAME";
+const AUTHKEY_VAR: &str = "TS_AUTH_KEY";
+
 /// Config for connecting to Tailscale.
 pub struct Config {
     /// The path of the file used to store cryptographic keys.
@@ -44,6 +48,37 @@ impl Config {
             ..Default::default()
         })
     }
+
+    /// Construct a default config, setting certain fields from environment variables.
+    ///
+    /// The fields are only set if the corresponding environment variable is present, using
+    /// the default value otherwise.
+    ///
+    /// Loads:
+    ///
+    /// - `control_server_url` from `TS_CONTROL_URL`
+    /// - `requested_hostname` from `TS_HOSTNAME`
+    pub fn default_from_env() -> Config {
+        let mut config = Config::default();
+
+        if let Ok(u) = std::env::var(CONTROL_URL_VAR) {
+            match u.parse() {
+                Ok(u) => config.control_server_url = u,
+                Err(e) => {
+                    tracing::error!(error = %e, "parsing {CONTROL_URL_VAR} (fall back to default value)");
+                }
+            }
+        };
+
+        config.requested_hostname = std::env::var(HOSTNAME_VAR).ok();
+
+        config
+    }
+}
+
+/// Load an auth key from the `TS_AUTH_KEY` environment variable.
+pub fn auth_key_from_env() -> Option<String> {
+    std::env::var(AUTHKEY_VAR).ok()
 }
 
 /// Load key state from a path on the filesystem, or create a file with a new key state if
