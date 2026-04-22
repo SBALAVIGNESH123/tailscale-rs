@@ -53,28 +53,6 @@ jobs:
           toolchain-version: ${{ matrix.toolchain.version }}
           builder-triple: ${{ matrix.target.triple }}
           components: clippy
-      - name: Install nightly Rust toolchain
-        id: install-nightly-toolchain
-        if: steps.setup-rust.outputs.toolchain_cache_hit != 'true'
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly
-          components: rustfmt
-      - name: binstall
-        uses: cargo-bins/cargo-binstall@main
-      - name: Install cargo-deny
-        if: steps.setup-rust.outputs.toolchain_cache_hit != 'true'
-        run: cargo binstall --no-confirm cargo-deny
-      - name: Check for unused dependencies (cargo machete)
-        uses: bnjbvr/cargo-machete@main
-        with:
-          args: "--with-metadata"
-      - name: Dependency audit (cargo deny)
-        run: cargo deny --workspace --all-features check all
-      - name: Check formatting (cargo fmt)
-        run: cargo +nightly fmt --check
-      - name: Custom workspace checks
-        run: cargo +${{ matrix.toolchain.version }} run -p checks
       - name: Lint lib targets (cargo clippy)
         run: |-
           cargo +${{ matrix.toolchain.version }} clippy \
@@ -99,3 +77,31 @@ jobs:
         run: cargo +${{ matrix.toolchain.version }} build --all-features --workspace --release --verbose --all-targets --target ${{ matrix.target.triple }}
       - name: Docs (cargo doc)
         run: cargo +${{ matrix.toolchain.version }} doc --workspace --no-deps --all-features --target ${{ matrix.target.triple }}
+
+  arch_independent:
+    name: arch-independent checks
+    runs-on: linux-x86_64-16cpu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup rust
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
+        with:
+          toolchain-version: nightly
+          builder-triple: x86_64-unknown-linux-gnu
+          components: rustfmt
+      - name: binstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install cargo-deny
+        run: command -v cargo-deny || cargo binstall --no-confirm cargo-deny
+      - name: Check for unused dependencies (cargo machete)
+        uses: bnjbvr/cargo-machete@main
+        with:
+          args: "--with-metadata"
+      - name: Dependency audit (cargo deny)
+        run: cargo deny --workspace --all-features check all
+      - name: Check formatting (cargo fmt)
+        run: cargo +nightly fmt --check
+      - name: Custom workspace checks
+        run: cargo run -p checks
