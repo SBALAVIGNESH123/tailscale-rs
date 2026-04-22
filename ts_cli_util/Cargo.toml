@@ -4,6 +4,7 @@ version.workspace = true
 description = "tailscale utilities for writing command-line tools"
 categories = ["command-line-interface"]
 keywords = ["tailscale", "cli", "util"]
+publish = false
 
 repository.workspace = true
 edition.workspace = true
