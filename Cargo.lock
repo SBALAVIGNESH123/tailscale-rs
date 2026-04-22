@@ -4493,7 +4493,7 @@ dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
  "tailscale",
- "ts_cli_util",
+ "tracing-subscriber",
 ]
 
 [[package]]

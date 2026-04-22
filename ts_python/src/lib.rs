@@ -7,6 +7,7 @@ use std::{
 
 use pyo3::{exceptions::PyValueError, prelude::*};
 use pyo3_async_runtimes::tokio::future_into_py;
+use tracing_subscriber::filter::LevelFilter;
 
 use crate::ip_or_str::IpRepr;
 
@@ -37,7 +38,15 @@ pub mod _internal {
     #[pyo3(signature = (config_path, auth_key=None))]
     pub fn connect(py: Python<'_>, config_path: String, auth_key: Option<String>) -> PyFut<'_> {
         static TRACING_ONCE: Once = Once::new();
-        TRACING_ONCE.call_once(ts_cli_util::init_tracing);
+        TRACING_ONCE.call_once(|| {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::builder()
+                        .with_default_directive(LevelFilter::INFO.into())
+                        .from_env_lossy(),
+                )
+                .init();
+        });
 
         future_into_py(py, async move {
             let config = ts::Config {
