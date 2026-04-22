@@ -20,7 +20,7 @@ ts_netstack_smoltcp_socket.workspace = true
 
 # Unconditionally required dependencies.
 bytes.workspace = true
-futures-util.workspace = true
+futures-util = { workspace = true, features = ["async-await", "async-await-macro"] }
 tracing.workspace = true
 
 # Required dependencies for the "tokio" feature.

@@ -65,7 +65,7 @@ pub async fn run(
 
         tracing::trace!(parent: &span, "select");
 
-        futures_util::select![
+        futures_util::select_biased![
             _ = netstack.wait_io_async(now, dev)
                 .instrument(span.clone())
                 .fuse() =>
