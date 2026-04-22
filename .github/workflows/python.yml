@@ -53,27 +53,25 @@ jobs:
           - os: linux
             runner: linux-arm64-16cpu
             target: aarch64
+            triple: aarch64-unknown-linux-gnu
           - os: linux
             runner: linux-x86_64-16cpu
             target: x86_64
+            triple: x86_64-unknown-linux-gnu
           - os: macOS
             runner: macos-26
             target: aarch64
+            triple: aarch64-apple-darwin
+
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Rust cache
-        id: cache-cargo
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Setup rust
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/toolchains
-            target/
-          key: ${{ matrix.platform.os }}-python-${{ env.cache_key }}-${{ env.rust_toolchain }}-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+          toolchain-version: ${{ env.rust_toolchain }}
+          builder-triple: ${{ matrix.platform.triple }}
       - name: Install python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:

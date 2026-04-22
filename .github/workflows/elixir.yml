@@ -70,19 +70,6 @@ jobs:
             ts_elixir/deps/
           key: ${{ runner.os }}-mix-${{ env.cache_key }}-elixir-${{ matrix.elixir.version }}-otp-${{ matrix.otp.version }}-${{ hashFiles('**/mix.lock') }}
 
-      - name: Cache Rust
-        id: cache-rust-elixir
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/toolchains
-            target/
-          key: ${{ runner.os }}-elixir-rs-${{ env.cache_key }}-${{ matrix.rust_toolchain.version }}-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install elixir
         id: install-elixir
         uses: erlef/setup-beam@v1.24.0
@@ -90,12 +77,12 @@ jobs:
           otp-version: ${{ matrix.otp.version }}
           elixir-version: ${{ matrix.elixir.version }}
 
-      - name: Install Rust toolchain
-        id: install-rust-toolchain
-        if: steps.cache-rust-elixir.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@master
+      - name: Setup rust
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ matrix.rust_toolchain.version }}
+          toolchain-version: ${{ matrix.rust_toolchain.version }}
+          builder-triple: x86_64-linux-unknown-gnu
 
       - name: Install dependencies
         run: mix deps.get
@@ -166,7 +153,7 @@ jobs:
     name: publish
     runs-on: linux-x86_64-16cpu
     needs: build_test
-    if: ${{ startsWith(github.ref, 'refs/tags/*') || github.event_name == 'workflow_dispatch' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
 
     environment: *hex_environment
 
@@ -190,19 +177,6 @@ jobs:
             ts_elixir/deps/
           key: ${{ runner.os }}-mix-${{ env.cache_key }}-elixir-${{ env.latest_elixir }}-otp-${{ env.latest_otp }}-${{ hashFiles('**/mix.lock') }}
 
-      - name: Cache Rust
-        id: cache-rust-elixir
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.rustup/toolchains
-            target/
-          key: ${{ runner.os }}-elixir-rs-${{ env.cache_key }}-${{ env.latest_rust }}-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install elixir
         id: install-elixir
         uses: erlef/setup-beam@v1.24.0
@@ -210,12 +184,12 @@ jobs:
           otp-version: ${{ env.latest_otp }}
           elixir-version: ${{ env.latest_elixir }}
 
-      - name: Install Rust toolchain
-        id: install-rust-toolchain
-        if: steps.cache-rust-elixir.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@master
+      - name: Setup rust
+        id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: ${{ env.latest_rust }}
+          toolchain-version: ${{ matrix.rust_toolchain.version }}
+          builder-triple: x86_64-linux-unknown-gnu
 
       - name: Install dependencies
         run: mix deps.get
