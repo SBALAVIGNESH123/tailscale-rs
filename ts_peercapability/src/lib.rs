@@ -5,23 +5,51 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
-/// A map of application-specific capabilities to optional associated values. An empty
-/// value set still represents a grant of the capability.
+/// A map of application-specific capability names to an optional list of associated values.
+/// An empty list of values may still represent a meaningful capability grant, though the
+/// meaning depends on the application.
 ///
-/// Values and keys are opaque and application-specific; they are visible to applications
-/// via the `WhoIs` API.
-pub type Map<'a> = BTreeMap<PeerCap<'a>, Vec<&'a str>>;
+/// The values in each list are opaque and application-specific; the only constraint is that
+/// they must be valid JSON. _Conventionally_, and as the KB docs indicate, they are JSON
+/// objects with fields representing specific parameters, e.g.
+///
+/// ```json
+/// {
+///     "example.com/cap": [
+///         { "parameter1": $ANY_JSON_VALUE },
+///         { "parameter2": $ANY_JSON_VALUE, "parameter3": $ANY_JSON_VALUE }
+///     ]
+/// }
+/// ```
+///
+/// However, the following is also a valid capmap -- each list element can be any valid JSON
+/// value:
+///
+/// ```json
+/// {
+///     "example.com/cap": [
+///         true,
+///         null,
+///         [64],
+///         "myvalue"
+///     ]
+/// }
+/// ```
+///
+/// Since we don't know the representation, the list values are represented as uninterpreted
+/// raw JSON strings.
+pub type Map<'a> = BTreeMap<Name<'a>, Vec<&'a str>>;
 
 /// Shorthand for declaring a `const` peercap name.
 ///
 /// # Examples
 ///
 /// ```rust
-/// # use ts_peercapability::PeerCap;
+/// # use ts_peercapability::Name;
 /// ts_peercapability::peercap!(MY_PEERCAP, "https://my_peercap.com");
 ///
 /// // equivalent to:
-/// pub const MY_PEERCAP_2: PeerCap = PeerCap::new("https://my_peercap.com");
+/// pub const MY_PEERCAP_2: Name = Name::new("https://my_peercap.com");
 ///
 /// assert_eq!(MY_PEERCAP, MY_PEERCAP_2);
 /// ```
@@ -29,7 +57,7 @@ pub type Map<'a> = BTreeMap<PeerCap<'a>, Vec<&'a str>>;
 macro_rules! peercap {
     ($(#[$m:meta])* $name:ident, $cap:expr) => {
         $(#[$m])*
-        pub const $name: $crate::PeerCap<'static> = $crate::PeerCap::new($cap);
+        pub const $name: $crate::Name<'static> = $crate::Name::new($cap);
     };
 }
 
@@ -50,14 +78,15 @@ macro_rules! ts_peercap {
     };
 }
 
-/// An application-layer capability granted to a tailnet peer by a packet filter rule.
+/// The name of an application-layer capability granted to a tailnet peer by a packet filter
+/// rule.
 ///
-/// Capabilities should be URLs.
+/// Capability names should be URLs.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct PeerCap<'a>(#[cfg_attr(feature = "serde", serde(borrow))] pub &'a str);
+pub struct Name<'a>(#[cfg_attr(feature = "serde", serde(borrow))] pub &'a str);
 
-impl<'a> PeerCap<'a> {
+impl<'a> Name<'a> {
     ts_peercap!(
         /// Grants the current node the ability to send files to peers with this capability.
         FILE_SHARING_TARGET,
@@ -116,16 +145,14 @@ impl<'a> PeerCap<'a> {
     );
 
     /// Convenience function to construct a new `PeerCap` from `&str`.
-    #[inline]
     pub const fn new(s: &'a str) -> Self {
         Self(s)
     }
 
-    /// Parse this `PeerCapability` as a URL.
+    /// Parse this `Name` as a URL.
     ///
     /// This function attempts to correct for improperly-formatted URLs that are missing
     /// a scheme by prepending `https://` if the first attempt at parsing fails.
-    #[inline]
     pub fn parse_url(&self) -> Option<url::Url> {
         url::Url::parse(self.as_ref())
             .or_else(|e| {
@@ -139,17 +166,36 @@ impl<'a> PeerCap<'a> {
             })
             .ok()
     }
+
+    /// Split this `Name` to domain and capability-name parts.
+    ///
+    /// Any preceding `https://` prefix is stripped. The name must contain at least one `/`.
+    /// Everything before the first `/` is the domain, everything after is the capability
+    /// name.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ts_peercapability::Name;
+    /// assert_eq!(Name("tailscale.com/cap/relay").split(), Some(("tailscale.com", "cap/relay")));
+    /// assert_eq!(Name("https://tailscale.com/cap/tsidp").split(), Some(("tailscale.com", "cap/tsidp")));
+    /// assert_eq!(Name("improper_cap_name").split(), None);
+    /// ```
+    pub fn split(&self) -> Option<(&str, &str)> {
+        let s = self.0.strip_prefix("https://").unwrap_or(self.0);
+        let (domain, cap_name) = s.split_once('/')?;
+
+        Some((domain, cap_name))
+    }
 }
 
-impl AsRef<str> for PeerCap<'_> {
-    #[inline]
+impl AsRef<str> for Name<'_> {
     fn as_ref(&self) -> &str {
         self.0
     }
 }
 
-impl<'a> From<&'a str> for PeerCap<'a> {
-    #[inline]
+impl<'a> From<&'a str> for Name<'a> {
     fn from(value: &'a str) -> Self {
         Self(value)
     }
@@ -161,6 +207,16 @@ mod test {
 
     #[test]
     fn improper_url() {
-        PeerCap::RELAY.parse_url().unwrap();
+        Name::RELAY.parse_url().unwrap();
+    }
+
+    #[test]
+    fn split() {
+        assert_eq!(
+            Name::INGRESS.split().unwrap(),
+            ("tailscale.com", "cap/ingress")
+        );
+        assert_eq!(Name::RELAY.split().unwrap(), ("tailscale.com", "cap/relay"));
+        assert_eq!(Name("abc").split(), None);
     }
 }

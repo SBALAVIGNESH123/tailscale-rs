@@ -2,7 +2,7 @@ use alloc::{collections::BTreeMap, vec::Vec};
 
 use ipnet::IpNet;
 use serde::Deserializer;
-use ts_peercapability::PeerCap;
+use ts_peercapability::Name;
 
 /// Grants application capabilities for a set of destination IP prefixes in a
 /// [`FilterRule`][crate::FilterRule].
@@ -30,10 +30,10 @@ impl<'a, 'de: 'a> serde::Deserialize<'de> for CapGrant<'a> {
             dsts: Vec<IpNet>,
 
             #[serde(borrow, default)]
-            caps: Vec<PeerCap<'a>>,
+            caps: Vec<Name<'a>>,
 
             #[serde(borrow, default)]
-            cap_map: BTreeMap<PeerCap<'a>, Option<Vec<&'a serde_json::value::RawValue>>>,
+            cap_map: BTreeMap<Name<'a>, Option<Vec<&'a serde_json::value::RawValue>>>,
         }
 
         let DeserCapGrant {
@@ -138,7 +138,7 @@ mod test {
 
         let expected_peercaps = caps
             .into_iter()
-            .map(|(k, v)| (PeerCap::from(k), v.to_vec()))
+            .map(|(k, v)| (Name::from(k), v.to_vec()))
             .collect::<BTreeMap<_, _>>();
 
         assert_eq!(
