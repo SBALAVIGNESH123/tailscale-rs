@@ -540,6 +540,99 @@ impl<const N_WORDS: usize> core::ops::Not for Bitset<N_WORDS> {
     }
 }
 
+impl<const N_WORDS: usize> core::ops::Shr<usize> for Bitset<N_WORDS> {
+    type Output = Self;
+
+    /// Shift all bits right by `shift` positions.
+    ///
+    /// Bits shifted past the end of the bitset are discarded, and the vacated
+    /// high positions are filled with zeros.
+    #[inline]
+    fn shr(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let total_bits = N_WORDS * 64;
+        if shift >= total_bits {
+            return Self::EMPTY;
+        }
+
+        let word_shift = shift / 64;
+        let bit_shift = shift % 64;
+
+        let mut out = [0u64; N_WORDS];
+
+        if bit_shift == 0 {
+            // Aligned shift: just move whole words.
+            out[..(N_WORDS - word_shift)].copy_from_slice(&self.0[word_shift..N_WORDS]);
+        } else {
+            // Unaligned shift: combine bits from adjacent words.
+            for i in word_shift..N_WORDS {
+                out[i - word_shift] = self.0[i] >> bit_shift;
+                if i + 1 < N_WORDS {
+                    out[i - word_shift] |= self.0[i + 1] << (64 - bit_shift);
+                }
+            }
+        }
+
+        Self(out)
+    }
+}
+
+impl<const N_WORDS: usize> core::ops::ShrAssign<usize> for Bitset<N_WORDS> {
+    #[inline]
+    fn shr_assign(&mut self, shift: usize) {
+        *self = *self >> shift;
+    }
+}
+
+impl<const N_WORDS: usize> core::ops::Shl<usize> for Bitset<N_WORDS> {
+    type Output = Self;
+
+    /// Shift all bits left by `shift` positions.
+    ///
+    /// Bits shifted past the end of the bitset are discarded, and the vacated
+    /// low positions are filled with zeros.
+    #[inline]
+    fn shl(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let total_bits = N_WORDS * 64;
+        if shift >= total_bits {
+            return Self::EMPTY;
+        }
+
+        let word_shift = shift / 64;
+        let bit_shift = shift % 64;
+
+        let mut out = [0u64; N_WORDS];
+
+        if bit_shift == 0 {
+            out[word_shift..N_WORDS].copy_from_slice(&self.0[..(N_WORDS - word_shift)]);
+        } else {
+            for (dst, out_word) in out.iter_mut().enumerate().skip(word_shift) {
+                let src = dst - word_shift;
+                *out_word = self.0[src] << bit_shift;
+                if src > 0 {
+                    *out_word |= self.0[src - 1] >> (64 - bit_shift);
+                }
+            }
+        }
+
+        Self(out)
+    }
+}
+
+impl<const N_WORDS: usize> core::ops::ShlAssign<usize> for Bitset<N_WORDS> {
+    #[inline]
+    fn shl_assign(&mut self, shift: usize) {
+        *self = *self << shift;
+    }
+}
+
 impl<const N_WORDS: usize> From<[u64; N_WORDS]> for Bitset<N_WORDS> {
     #[inline]
     fn from(value: [u64; N_WORDS]) -> Self {
@@ -594,7 +687,7 @@ const fn len(val: u64) -> usize {
 
 #[cfg(test)]
 mod test {
-    use std::vec::Vec;
+    use std::{vec, vec::Vec};
 
     use proptest::prelude::{Rng, Strategy};
 
@@ -852,5 +945,159 @@ mod test {
 
             proptest::prop_assert_eq!(Some(i as usize), bits.intersection_top(&other));
         }
+
+        #[test]
+        fn shr_shl_roundtrip(bs in bitset(), shift in 0usize..=256) {
+            // Shifting right then left by the same amount should clear the low bits
+            // that fell off. Shifting left then right should clear the high bits.
+            let shifted = (bs >> shift) << shift;
+            // Every bit that was set in `shifted` must also be set in `bs`.
+            for bit in shifted.bits() {
+                proptest::prop_assert!(bs.test(bit), "bit {} set in shifted but not original", bit);
+            }
+        }
+
+        #[test]
+        fn shr_preserves_count_bounds(bs in bitset(), shift in 0usize..=256) {
+            let shifted = bs >> shift;
+            proptest::prop_assert!(shifted.count_ones() <= bs.count_ones());
+        }
+
+        #[test]
+        fn shl_preserves_count_bounds(bs in bitset(), shift in 0usize..=256) {
+            let shifted = bs << shift;
+            proptest::prop_assert!(shifted.count_ones() <= bs.count_ones());
+        }
+    }
+
+    // Deterministic shift tests for edge cases.
+
+    #[test]
+    fn shr_zero() {
+        let bs = Bitset256::EMPTY.with_bits(&[0, 63, 64, 127, 255]);
+        assert_eq!(bs >> 0, bs);
+    }
+
+    #[test]
+    fn shr_one() {
+        let bs = Bitset256::EMPTY.with_bit(1);
+        assert_eq!((bs >> 1).bits().collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn shr_exact_word_boundary() {
+        // Bit 64 shifted right by 64 should become bit 0.
+        let bs = Bitset256::EMPTY.with_bit(64);
+        let shifted = bs >> 64;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn shr_cross_word_boundary() {
+        // Bit 65 shifted right by 2 should become bit 63.
+        let bs = Bitset256::EMPTY.with_bit(65);
+        let shifted = bs >> 2;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![63]);
+    }
+
+    #[test]
+    fn shr_all_bits_out() {
+        let bs = Bitset256::FULL;
+        assert_eq!(bs >> 256, Bitset256::EMPTY);
+        assert_eq!(bs >> 512, Bitset256::EMPTY);
+    }
+
+    #[test]
+    fn shr_63() {
+        // Shift by 63 — just under a full word shift.
+        let bs = Bitset256::EMPTY.with_bit(63);
+        let shifted = bs >> 63;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn shr_127() {
+        let bs = Bitset256::EMPTY.with_bit(127);
+        let shifted = bs >> 127;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![0]);
+    }
+
+    #[test]
+    fn shr_multi_word() {
+        // Set bits across all 4 words and shift by 65.
+        let bs = Bitset256::EMPTY.with_bits(&[0, 64, 128, 192]);
+        let shifted = bs >> 65;
+        // 0 falls off. 64->nothing (64-65<0). 128->63. 192->127.
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![63, 127]);
+    }
+
+    #[test]
+    fn shl_zero() {
+        let bs = Bitset256::EMPTY.with_bits(&[0, 63, 64, 127, 255]);
+        assert_eq!(bs << 0, bs);
+    }
+
+    #[test]
+    fn shl_one() {
+        let bs = Bitset256::EMPTY.with_bit(0);
+        assert_eq!((bs << 1).bits().collect::<Vec<_>>(), vec![1]);
+    }
+
+    #[test]
+    fn shl_exact_word_boundary() {
+        let bs = Bitset256::EMPTY.with_bit(0);
+        let shifted = bs << 64;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![64]);
+    }
+
+    #[test]
+    fn shl_cross_word_boundary() {
+        let bs = Bitset256::EMPTY.with_bit(63);
+        let shifted = bs << 2;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![65]);
+    }
+
+    #[test]
+    fn shl_all_bits_out() {
+        let bs = Bitset256::FULL;
+        assert_eq!(bs << 256, Bitset256::EMPTY);
+        assert_eq!(bs << 512, Bitset256::EMPTY);
+    }
+
+    #[test]
+    fn shl_255_from_bit0() {
+        let bs = Bitset256::EMPTY.with_bit(0);
+        let shifted = bs << 255;
+        assert_eq!(shifted.bits().collect::<Vec<_>>(), vec![255]);
+    }
+
+    #[test]
+    fn shr_assign_works() {
+        let mut bs = Bitset256::EMPTY.with_bit(10);
+        bs >>= 5;
+        assert_eq!(bs.bits().collect::<Vec<_>>(), vec![5]);
+    }
+
+    #[test]
+    fn shl_assign_works() {
+        let mut bs = Bitset256::EMPTY.with_bit(5);
+        bs <<= 10;
+        assert_eq!(bs.bits().collect::<Vec<_>>(), vec![15]);
+    }
+
+    // Small bitset (single word) shift tests.
+
+    #[test]
+    fn shr_single_word() {
+        let bs = Bitset::<1>::EMPTY.with_bit(63);
+        assert_eq!((bs >> 63).bits().collect::<Vec<_>>(), vec![0]);
+        assert_eq!(bs >> 64, Bitset::<1>::EMPTY);
+    }
+
+    #[test]
+    fn shl_single_word() {
+        let bs = Bitset::<1>::EMPTY.with_bit(0);
+        assert_eq!((bs << 63).bits().collect::<Vec<_>>(), vec![63]);
+        assert_eq!(bs << 64, Bitset::<1>::EMPTY);
     }
 }
